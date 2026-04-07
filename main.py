@@ -1,11 +1,14 @@
-import PyPDF2
+import pypdf
 import re
 import logging
 import sys
+from pathlib import Path
 
 
 logging.getLogger().setLevel(logging.DEBUG)
 
+
+folder_path = Path('input')
 
 tokens = None
 registers = []
@@ -21,12 +24,14 @@ def next():
 def next_document():
     global doc_name
 
-    docs = sys.argv[1:]
-    for doc in docs:
-        doc_name = doc.split('/')[-1]
-        reader = PyPDF2.PdfReader(doc)
-        logging.info(f'Number of pages in "{doc}": ' + str(len(reader.pages)))
-        yield reader
+    # docs = sys.argv[1:]
+    for doc in folder_path.iterdir():
+        if doc.is_file() and doc.name != '.gitkeep':
+            print(doc.name)
+            doc_name = doc.name
+            reader = pypdf.PdfReader(doc)
+            logging.info(f'Number of pages in "{doc}": ' + str(len(reader.pages)))
+            yield reader
 
 
 def next_page():
@@ -53,59 +58,66 @@ def find_date(text):
 register = None
 is_correct_table = False
 
-for page in next_page():
-    while next():
-        logging.debug(current())
 
-        if current().lower() in ["lançamentos: compras e saques", "lançamentos: produtos e serviços"]:
-            is_correct_table = True
-            continue
+def main():
+    for page in next_page():
+        while next():
+            logging.debug(f'line: {current()}')
 
-        if current().lower() in ["compras parceladas - próximas faturas"]:
-            is_correct_table = False
-            continue
+            if current().lower() in ["lançamentos: compras e saques", "lançamentos: produtos e serviços"]:
+                is_correct_table = True
+                continue
 
-        if find_date(current()) and is_correct_table:
-            logging.debug('starting register')
-            register = [doc_name, current()]
-            continue
+            if current().lower() in ["compras parceladas - próximas faturas"]:
+                is_correct_table = False
+                continue
 
-        if find_monetary(current()) and register:
-            logging.debug('closing register')
-            value = float(current().replace(',', '.').replace(' ', ''))
-            
-            category = ""
-            for i in range(1,7):
-                offset = current(offset=i)
-                logging.debug(f'category attemp {i}: {offset}')
-                if offset and '.' in offset and ',' not in offset:
-                    category = offset
-                    break
-            
-            category_name = category.split('.')[0].strip()
-            city = '.'.join(category.split('.')[1:]).strip()
+            if find_date(current()) and is_correct_table:
+                logging.debug('starting register')
+                register = [doc_name, current()]
+                continue
 
-            register += [category_name, city]
-            register.append(value)            
-            registers.append(register)            
-            register = None
-            continue
+            if find_monetary(current()) and register:
+                logging.debug('closing register')
+                value = float(current().replace(',', '.').replace(' ', ''))
+                print('v', value)
+                category = ""
+                for i in range(1,7):
+                    offset = current(offset=i)
+                    logging.debug(f'category attemp {i}: {offset}')
+                    if offset and '.' in offset and ',' not in offset:
+                        category = offset
+                        break
+                
+                category_name = category.split('.')[0].strip()
+                city = '.'.join(category.split('.')[1:]).strip()
 
-        if register:
-            logging.debug('complementing register')
-            _register = current()
-            _parc = re.search("[0-9]{2}/[0-9]{2}", _register)
-            _parc, _total = _parc.group().split('/') if _parc else ["", ""]
-            register += [_register, _parc, _total]     
-            continue
-  
-sep = ';'
-with open('ouput.csv', 'w') as f:
-    t = [[register if isinstance(register, str) else str(register).replace('.',',') for register in row] for row in registers]
-    data = sep.join(['filename','date','description','parc','total_parc','category','city','value']) + '\n'
-    data += '\n'.join([ sep.join(register) for register in t])
-    f.write(data)
+                register += [category_name, city]
+                register.append(value)            
+                registers.append(register)            
+                register = None
+                continue
 
-logging.debug(registers)
-logging.info('total of registers ' + str(len(registers)))
-logging.info('total of money ' + str(sum([r[-1] for r in registers])))
+            if register:
+                logging.debug('complementing register')
+                _register = current()
+                _parc = re.search("[0-9]{2}/[0-9]{2}", _register)
+                _parc, _total = _parc.group().split('/') if _parc else ["", ""]
+                register += [_register, _parc, _total]     
+                continue
+
+    sep = ';'
+    with open('output/ouput.csv', 'w') as f:
+        t = [[register if isinstance(register, str) else str(register).replace('.',',') for register in row] for row in registers]
+        data = sep.join(['filename','date','description','parc','total_parc','category','city','value']) + '\n'
+        data += '\n'.join([ sep.join(register) for register in t])
+        f.write(data)
+        print(data)
+
+    logging.debug(registers)
+    logging.info('total of registers ' + str(len(registers)))
+    logging.info('total of money ' + str(sum([r[-1] for r in registers])))
+
+
+if __name__ == "__main__":
+    main()
